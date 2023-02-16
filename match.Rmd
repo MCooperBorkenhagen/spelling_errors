@@ -1,0 +1,139 @@
+---
+title: "match to sample"
+output: html_document
+date: "2023-02-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(tidyverse)
+require(readxl)
+require(class)
+require(RANN)
+
+devtools::source_url("https://github.com/MCooperBorkenhagen/utilities/blob/master/eda.R?raw=true")
+```
+
+
+
+```{r}
+set.seed(011)
+
+targets = read_xlsx('data/spelling_error_class_Nancy_person.xlsx') %>% 
+  distinct(Spelling_Target) %>% 
+  pull(Spelling_Target)
+
+elp = read_csv('../../words/elp/elp_clean.csv') %>% 
+  rownames_to_column() %>% 
+  mutate(i = as.numeric(rowname)) %>% 
+  select(i, word, f = Freq_HAL, length_orth = Length, length_phon = NPhon, length_syll = NSyll, length_morph = NMorph) %>% 
+  mutate(target = case_when(word %in% targets ~ TRUE,
+                            TRUE ~ FALSE))
+
+
+targets = elp %>% 
+  filter(target) %>% 
+  select(word, i)
+
+elp_knn = elp %>% 
+  select(where(is.numeric))
+
+# generate neighbors by kd-tree
+neighbors = nn2(elp_knn, query = elp_knn, k = 25)
+
+```
+
+Let's merge our samples of neighbors from the kd-tree method and clean them up so that they are organized in term of their sample. Notice that the `sample` column is actually the `n` nearest neighbor, where `k` indexes the rank proximity based on the k-tree estimation
+
+```{r}
+tmp = elp %>% 
+  select(neighbor_index = i, neighbor = word)
+
+nn_i = neighbors$nn.idx %>% 
+  as_tibble() %>% 
+  rownames_to_column() %>% 
+  rename(i = rowname) %>%  
+  mutate(i = as.numeric(i)) %>%  
+  filter(i %in% targets$i) %>% 
+  rename_all(~sub('V', '', .x)) %>% 
+  pivot_longer(!i, names_to = 'neighbor_rank', values_to = 'neighbor_index') %>% 
+  left_join(targets) %>% 
+  rename(target = word, target_index = i) %>% 
+  left_join(tmp)
+
+nn_dist = neighbors$nn.dists %>% 
+  as_tibble() %>%
+  rownames_to_column() %>% 
+  rename(i = rowname) %>%  
+  mutate(i = as.numeric(i)) %>%  
+  filter(i %in% targets$i) %>% 
+  rename_all(~sub('V', '', .x)) %>% 
+  pivot_longer(!i, names_to = 'neighbor_rank', values_to = 'neighbor_distance') %>% 
+  rename(target_index = i)
+
+samples = nn_i %>% 
+  left_join(nn_dist, by = c("target_index", "neighbor_rank")) %>% 
+  mutate(neighbor_rank = as.numeric(neighbor_rank)) %>% 
+  select(sample = neighbor_rank, target_index, target, neighbor, neighbor_index, neighbor_distance)
+  
+rm(nn_dist, nn_i, tmp, elp_knn, neighbors)
+```
+
+We will also clean up the samples, skipping samples where the nearest neighbor selected was the target itself (which is usually, but not always the case). Notice that a number of samples have nearest neighbors that aren't equal to the target based on the kd tree NN estimation. This is likely going to be the case for words with more densely populated neighborhoods.
+
+```{r}
+
+samples %>%
+  filter(target == neighbor & sample != 1)
+
+```
+
+However, you will notice that the estimated distance in these cases is always `0` (i.e., is a _tie_ with itself).
+
+```{r}
+samples %>% 
+  filter(sample == 1 & target != neighbor)
+
+```
+
+There are a few possible ways to do this, but we will do the simplest. We will remove the rows where the target is the neighbor, 
+
+
+```{r}
+samples %>% 
+  filter(target != neighbor) %>% 
+  filter(sample < 22) %>% 
+  group_by(target) %>% 
+  arrange(-desc(sample)) %>% 
+  mutate(rank = seq_len(n())) %>% 
+  select(-sample) %>% 
+  select(sample = rank, everything())
+  
+  
+
+```
+
+
+Now we need to subset our pairwise distances. We need to be sure that all the words from all our samples are present when we subset our distances (for orth, phon, sem). Note that this portion of the script takes a long time to run because loading these giant datafiles is intensive.
+
+```{r}
+D = read_csv('data/all_orth_distances.csv', col_names = T)
+
+D %>% 
+  filter(index1 %in% unique(samples$target_index, samples$neighbor_index) | index2 %in% unique(samples$target_index, samples$neighbor_index)) %>%
+  write_csv('data/subset_orth_distances.csv')
+
+so = read_csv('data/subset_orth_distances.csv')
+
+rm(D)
+
+D = read_csv('data/all_phone_distances.csv', col_names = T)
+
+
+D %>% 
+  filter(index1 %in% unique(samples$target_index, samples$neighbor_index) | index2 %in% unique(samples$target_index, samples$neighbor_index)) %>%
+  write_csv('data/subset_phon_distances.csv')
+
+
+```
+

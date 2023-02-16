@@ -1,0 +1,110 @@
+---
+title: "Spelling errors"
+output: html_document
+date: '2022-11-20'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(RSQLite)
+require(tidyverse)
+require(DBI)
+require(readxl)
+source('scripts/read.R')
+filter = dplyr::filter
+
+
+#d = readxl::read_xlsx('spelling_error_class_Nancy.xlsx')
+
+
+
+dd = d %>% 
+  filter(spell_corr_item == 0) %>% 
+  rownames_to_column() %>% 
+  mutate(id = as.numeric(rowname)) %>% 
+  select(-rowname)
+
+
+
+dd %>% 
+  select(SyllableErrors, PhonemeErrors, AffixErrors, RootErrors, OGErrors, SemanticErrors, MGRError, LiquidErrors) %>% 
+  tsne::tsne() -> TT
+
+
+dd %>% 
+  select(SyllableErrors, PhonemeErrors, AffixErrors, RootErrors, OGErrors, SemanticErrors, MGRError, LiquidErrors) %>% 
+  stats::prcomp() -> PCA
+
+PCS = PCA$x %>% 
+  as_tibble()
+
+dd = dd %>% 
+  cbind(TT) %>% 
+  rename(t1 = `1`, t2 = `2`) %>% 
+  cbind(PCS)
+  
+```
+
+
+```{r}
+
+dd %>% 
+  ggplot(aes(t1, t2, label = spell_item)) +
+  geom_label() +
+  theme(legend.position = 'none')
+
+
+dd %>% 
+  filter(Spelling_Target == 'miscellaneous') %>% 
+  ggplot(aes(t1, t2, label = spell_item)) +
+  geom_label() +
+  theme(legend.position = 'none')
+
+```
+
+
+```{r}
+dd %>% 
+  ggplot(aes(PC1, PC2, fill = factor(Spelling_Target), label = spell_item)) +
+  geom_label() +
+  theme(legend.position = 'none') +
+  scale_fill_hue(l=50) +
+  labs(x = 'Component 1', y = 'Component 2')
+
+```
+
+
+```{r}
+elp %>% 
+  filter(Word %in% unique(dd$Spelling_Target)) %>% 
+  select(Word, Freq_HAL) %>% 
+  View()
+```
+
+
+```{r}
+elp %>% 
+  filter(Word == 'nan') 
+```
+
+
+```{r}
+all_orth_distances_df = read_csv('data/all_orth_distances.csv')
+
+all_orth_distances_df %>% 
+  filter(index1 == index2) -> tmp
+```
+
+```{r}
+
+
+
+mydb <- dbConnect(RSQLite::SQLite(), "")
+all_orth_distances = sqldf::read.csv.sql("data/all_orth_distances.csv", sql= "select * from file where index1 = 0")
+
+
+
+dbDisconnect(mydb)
+
+
+```
