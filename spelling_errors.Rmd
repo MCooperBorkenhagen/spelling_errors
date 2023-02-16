@@ -12,7 +12,7 @@ require(DBI)
 require(readxl)
 source('scripts/read.R')
 filter = dplyr::filter
-
+require(here)
 
 #d = readxl::read_xlsx('spelling_error_class_Nancy.xlsx')
 
@@ -82,29 +82,3 @@ elp %>%
 ```
 
 
-```{r}
-elp %>% 
-  filter(Word == 'nan') 
-```
-
-
-```{r}
-all_orth_distances_df = read_csv('data/all_orth_distances.csv')
-
-all_orth_distances_df %>% 
-  filter(index1 == index2) -> tmp
-```
-
-```{r}
-
-
-
-mydb <- dbConnect(RSQLite::SQLite(), "")
-all_orth_distances = sqldf::read.csv.sql("data/all_orth_distances.csv", sql= "select * from file where index1 = 0")
-
-
-
-dbDisconnect(mydb)
-
-
-```

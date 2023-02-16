@@ -1,0 +1,44 @@
+---
+title: "Dimensionality reduction"
+output: html_document
+date: "2023-02-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(tidyverse)
+require(reticulate)
+use_condaenv("python36_env")
+```
+
+
+```{r}
+
+sklearn = import('sklearn.decomposition')
+```
+
+
+```{r}
+phon_distances_wide = phon_distances %>% 
+  pivot_wider(names_from = index2, values_from = distance)
+
+orth_distances_wide = orth_distances %>% 
+  select(index1, index2, distance) %>% 
+  pivot_wider(names_from = index2, values_from = distance)
+```
+
+
+```{r}
+
+tmp = phon_distances_wide %>% 
+  select(-index1)
+
+phon_pca_ = phon_pca$fit(tmp)
+
+
+```
+
+
+```{r}
+phon_pcs = as_tibble(phon_pca_$components_)
+```
