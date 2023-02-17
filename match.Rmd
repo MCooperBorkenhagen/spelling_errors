@@ -10,6 +10,8 @@ require(tidyverse)
 require(readxl)
 require(class)
 require(RANN)
+require(Hmisc)
+filter = dplyr::filter
 
 devtools::source_url("https://github.com/MCooperBorkenhagen/utilities/blob/master/eda.R?raw=true")
 ```
@@ -23,23 +25,29 @@ targets = read_xlsx('data/spelling_error_class_Nancy_person.xlsx') %>%
   distinct(Spelling_Target) %>% 
   pull(Spelling_Target)
 
-elp = read_csv('../../words/elp/elp_clean.csv') %>% 
+# subset the elp data
+elp = read_csv('../words/elp/elp_clean.csv') %>% 
   rownames_to_column() %>% 
-  mutate(i = as.numeric(rowname)) %>% 
+  mutate(i = as.numeric(rowname)-1) %>% # account for zero indexing in distance files 
   select(i, word, f = Freq_HAL, length_orth = Length, length_phon = NPhon, length_syll = NSyll, length_morph = NMorph) %>% 
   mutate(target = case_when(word %in% targets ~ TRUE,
-                            TRUE ~ FALSE))
+                            TRUE ~ FALSE),
+         length_phon = as.numeric(length_phon),
+         length_syll = as.numeric(length_syll),
+         length_morph = as.numeric(length_morph))
 
 
 targets = elp %>% 
-  filter(target) %>% 
+  filter(target) %>%
   select(word, i)
 
 elp_knn = elp %>% 
-  select(where(is.numeric))
+  select(where(is.numeric)) %>% 
+  select(-i) %>% 
+  drop_na()
 
 # generate neighbors by kd-tree
-neighbors = nn2(elp_knn, query = elp_knn, k = 25)
+neighbors = nn2(elp_knn, query = elp_knn, searchtype = 'priority', k = 25)
 
 ```
 
@@ -53,7 +61,7 @@ nn_i = neighbors$nn.idx %>%
   as_tibble() %>% 
   rownames_to_column() %>% 
   rename(i = rowname) %>%  
-  mutate(i = as.numeric(i)) %>%  
+  mutate(i = as.numeric(i)-1) %>%  
   filter(i %in% targets$i) %>% 
   rename_all(~sub('V', '', .x)) %>% 
   pivot_longer(!i, names_to = 'neighbor_rank', values_to = 'neighbor_index') %>% 
@@ -65,7 +73,7 @@ nn_dist = neighbors$nn.dists %>%
   as_tibble() %>%
   rownames_to_column() %>% 
   rename(i = rowname) %>%  
-  mutate(i = as.numeric(i)) %>%  
+  mutate(i = as.numeric(i)-1) %>%  
   filter(i %in% targets$i) %>% 
   rename_all(~sub('V', '', .x)) %>% 
   pivot_longer(!i, names_to = 'neighbor_rank', values_to = 'neighbor_distance') %>% 
@@ -79,38 +87,36 @@ samples = nn_i %>%
 rm(nn_dist, nn_i, tmp, elp_knn, neighbors)
 ```
 
-We will also clean up the samples, skipping samples where the nearest neighbor selected was the target itself (which is usually, but not always the case). Notice that a number of samples have nearest neighbors that aren't equal to the target based on the kd tree NN estimation. This is likely going to be the case for words with more densely populated neighborhoods.
-
-```{r}
-
-samples %>%
-  filter(target == neighbor & sample != 1)
-
-```
-
-However, you will notice that the estimated distance in these cases is always `0` (i.e., is a _tie_ with itself).
+We are using a search type in nearest neighbors that searches away from distance `0` (`searchtype = 'priority'`), so we shouldn't find our target as any of our neighbors. Let's make sure that none of our neighbors is a morphological variant of our target. We didn't control for that.
 
 ```{r}
 samples %>% 
-  filter(sample == 1 & target != neighbor)
+  mutate(target_first = str_split(target, '', simplify = T)[,1]) %>% 
+  mutate(neighbor_first = str_split(neighbor, '', simplify = T)[,1]) %>%
+  filter(target_first == neighbor_first) %>% 
+  View()
+  
 
 ```
 
-There are a few possible ways to do this, but we will do the simplest. We will remove the rows where the target is the neighbor, 
 
 
 ```{r}
-samples %>% 
-  filter(target != neighbor) %>% 
-  filter(sample < 22) %>% 
+removes = c('aqueducts', 'charlatans', 'bureaucrat', 'embarrassing', 'miscellanies', 'poignantly', 'separated', 'tranquility', 'tranquilizer')
+
+samples = samples %>% 
+  filter(neighbor %nin% removes) %>% 
   group_by(target) %>% 
   arrange(-desc(sample)) %>% 
   mutate(rank = seq_len(n())) %>% 
   select(-sample) %>% 
-  select(sample = rank, everything())
-  
-  
+  filter(rank < 21) %>%
+  select(sample = rank, everything()) %>% 
+  glimpse()
 
+# write samples to file:
+samples %>% 
+  write_csv('data/samples.csv')
 ```
 
 

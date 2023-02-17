@@ -30,15 +30,9 @@ orth_distances_wide = orth_distances %>%
 
 ```{r}
 
-tmp = phon_distances_wide %>% 
-  select(-index1)
-
-phon_pca_ = phon_pca$fit(tmp)
-
 
 ```
 
 
 ```{r}
-phon_pcs = as_tibble(phon_pca_$components_)
 ```
